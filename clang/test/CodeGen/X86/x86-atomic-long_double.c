@@ -94,7 +94,7 @@ long double testinc(_Atomic long double *addr) {
 // X64-NEXT:    [[TMP8]] = load x86_fp80, ptr [[ATOMIC_TEMP3]], align 16
 // X64-NEXT:    br i1 [[TMP7]], label %[[ATOMIC_CONT:.*]], label %[[ATOMIC_OP]]
 // X64:       [[ATOMIC_CONT]]:
-// X64-NEXT:    ret x86_fp80 [[TMP1]]
+// X64-NEXT:    ret x86_fp80 [[TMP2]]
 //
 // X86-LABEL: define dso_local x86_fp80 @testdec(
 // X86-SAME: ptr noundef [[ADDR:%.*]]) #[[ATTR0]] {
@@ -119,7 +119,7 @@ long double testinc(_Atomic long double *addr) {
 // X86-NEXT:    [[TMP3]] = load x86_fp80, ptr [[ATOMIC_TEMP1]], align 4
 // X86-NEXT:    br i1 [[CALL]], label %[[ATOMIC_CONT:.*]], label %[[ATOMIC_OP]]
 // X86:       [[ATOMIC_CONT]]:
-// X86-NEXT:    ret x86_fp80 [[TMP1]]
+// X86-NEXT:    ret x86_fp80 [[TMP2]]
 //
 long double testdec(_Atomic long double *addr) {
 
@@ -328,7 +328,7 @@ long double test_volatile_inc(volatile _Atomic long double *addr) {
 // X64-NEXT:    [[TMP8]] = load x86_fp80, ptr [[ATOMIC_TEMP3]], align 16
 // X64-NEXT:    br i1 [[TMP7]], label %[[ATOMIC_CONT:.*]], label %[[ATOMIC_OP]]
 // X64:       [[ATOMIC_CONT]]:
-// X64-NEXT:    ret x86_fp80 [[TMP1]]
+// X64-NEXT:    ret x86_fp80 [[TMP2]]
 //
 // X86-LABEL: define dso_local x86_fp80 @test_volatile_dec(
 // X86-SAME: ptr noundef [[ADDR:%.*]]) #[[ATTR0]] {
@@ -353,7 +353,7 @@ long double test_volatile_inc(volatile _Atomic long double *addr) {
 // X86-NEXT:    [[TMP3]] = load x86_fp80, ptr [[ATOMIC_TEMP1]], align 4
 // X86-NEXT:    br i1 [[CALL]], label %[[ATOMIC_CONT:.*]], label %[[ATOMIC_OP]]
 // X86:       [[ATOMIC_CONT]]:
-// X86-NEXT:    ret x86_fp80 [[TMP1]]
+// X86-NEXT:    ret x86_fp80 [[TMP2]]
 //
 long double test_volatile_dec(volatile _Atomic long double *addr) {
   return (*addr)--;

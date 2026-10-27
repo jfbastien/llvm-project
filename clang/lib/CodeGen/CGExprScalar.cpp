@@ -3650,7 +3650,9 @@ ScalarExprEmitter::EmitScalarPrePostIncDec(const UnaryOperator *E, LValue LV,
     atomicPHI->addIncoming(old, curBlock);
     Builder.CreateCondBr(success, contBB, atomicPHI->getParent());
     Builder.SetInsertPoint(contBB);
-    return isPre ? value : input;
+    // The initial load may be stale if the cmpxchg failed and the loop was
+    // re-entered, so return the value the successful cmpxchg replaced.
+    return isPre ? value : CGF.EmitFromMemory(atomicPHI, type);
   }
 
   // Store the updated result through the lvalue.
