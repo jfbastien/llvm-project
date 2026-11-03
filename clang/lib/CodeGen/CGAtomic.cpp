@@ -381,9 +381,15 @@ static void emitAtomicCmpXchg(CodeGenFunction &CGF, AtomicExpr *E, bool IsWeak,
                               uint64_t Size, llvm::AtomicOrdering SuccessOrder,
                               llvm::AtomicOrdering FailureOrder,
                               llvm::SyncScope::ID Scope) {
+  PointerAuthQualifier PtrAuth =
+      E->getPtr()->getType()->getPointeeType().getPointerAuth();
+  QualType ValueTy = E->getValueType().getUnqualifiedType();
   // Note that cmpxchg doesn't support weak cmpxchg, at least at the moment.
   llvm::Value *Expected = CGF.Builder.CreateLoad(Val1);
   llvm::Value *Desired = CGF.Builder.CreateLoad(Val2);
+  if (PtrAuth)
+    Expected = CGF.EmitPointerAuthQualify(PtrAuth, Expected, ValueTy, Ptr,
+                                          /*IsKnownNonNull=*/false);
 
   llvm::AtomicCmpXchgInst *Pair = CGF.Builder.CreateAtomicCmpXchg(
       Ptr, Expected, Desired, SuccessOrder, FailureOrder, Scope);
@@ -411,6 +417,9 @@ static void emitAtomicCmpXchg(CodeGenFunction &CGF, AtomicExpr *E, bool IsWeak,
   CGF.Builder.CreateCondBr(Cmp, ContinueBB, StoreExpectedBB);
 
   CGF.Builder.SetInsertPoint(StoreExpectedBB);
+  if (PtrAuth)
+    Old = CGF.EmitPointerAuthUnqualify(PtrAuth, Old, ValueTy, Ptr,
+                                       /*IsKnownNonNull=*/false);
   // Update the memory at Expected with Old's value.
   llvm::Type *ExpectedType = ExpectedResult.getElementType();
   const llvm::DataLayout &DL = CGF.CGM.getDataLayout();
@@ -566,6 +575,9 @@ static void EmitAtomicOp(CodeGenFunction &CGF, AtomicExpr *E, Address Dest,
   llvm::AtomicRMWInst::BinOp Op = llvm::AtomicRMWInst::Add;
   bool PostOpMinMax = false;
   unsigned PostOp = 0;
+  PointerAuthQualifier PtrAuth =
+      E->getPtr()->getType()->getPointeeType().getPointerAuth();
+  QualType ValueTy = E->getValueType().getUnqualifiedType();
 
   switch (E->getOp()) {
   case AtomicExpr::AO__c11_atomic_init:
@@ -633,8 +645,12 @@ static void EmitAtomicOp(CodeGenFunction &CGF, AtomicExpr *E, Address Dest,
     Load->setVolatile(E->isVolatile());
     CGF.getTargetHooks().setTargetAtomicMetadata(CGF, *Load, E);
     CGF.maybeAttachRangeForLoad(Load, E->getValueType(), E->getExprLoc());
-    auto *I = CGF.Builder.CreateStore(Load, Dest);
-    CGF.addInstToCurrentSourceAtom(I, Load);
+    llvm::Value *LoadVal = Load;
+    if (PtrAuth)
+      LoadVal = CGF.EmitPointerAuthUnqualify(PtrAuth, LoadVal, ValueTy, Ptr,
+                                             /*IsKnownNonNull=*/false);
+    auto *I = CGF.Builder.CreateStore(LoadVal, Dest);
+    CGF.addInstToCurrentSourceAtom(I, LoadVal);
     return;
   }
 
@@ -838,6 +854,11 @@ static void EmitAtomicOp(CodeGenFunction &CGF, AtomicExpr *E, Address Dest,
   // For __atomic_*_fetch operations, perform the operation again to
   // determine the value which was written.
   llvm::Value *Result = RMWI;
+  if (PtrAuth) {
+    assert(Op == llvm::AtomicRMWInst::Xchg);
+    Result = CGF.EmitPointerAuthUnqualify(PtrAuth, Result, ValueTy, Ptr,
+                                          /*IsKnownNonNull=*/false);
+  }
   if (PostOpMinMax)
     Result = EmitPostAtomicMinMax(CGF.Builder, E->getOp(),
                                   E->getValueType()->isSignedIntegerType(),
@@ -854,11 +875,15 @@ static void EmitAtomicOp(CodeGenFunction &CGF, AtomicExpr *E, Address Dest,
 
 // This function emits any expression (scalar, complex, or aggregate)
 // into a temporary alloca.
-static Address
-EmitValToTemp(CodeGenFunction &CGF, Expr *E) {
+static Address EmitValToTemp(CodeGenFunction &CGF, Expr *E,
+                             PointerAuthQualifier PtrAuth, Address Ptr) {
   Address DeclPtr = CGF.CreateMemTempWithoutCast(E->getType(), ".atomictmp");
-  CGF.EmitAnyExprToMem(E, DeclPtr, E->getType().getQualifiers(),
-                       /*Init*/ true);
+  if (PtrAuth)
+    CGF.Builder.CreateStore(CGF.EmitPointerAuthQualify(PtrAuth, E, Ptr),
+                            DeclPtr);
+  else
+    CGF.EmitAnyExprToMem(E, DeclPtr, E->getType().getQualifiers(),
+                         /*Init*/ true);
   return DeclPtr;
 }
 
@@ -948,6 +973,7 @@ RValue CodeGenFunction::EmitAtomicExpr(AtomicExpr *E) {
   QualType MemTy = AtomicTy;
   if (const AtomicType *AT = AtomicTy->getAs<AtomicType>())
     MemTy = AT->getValueType();
+  PointerAuthQualifier PtrAuth = AtomicTy.getPointerAuth();
   llvm::Value *IsWeak = nullptr, *OrderFail = nullptr;
 
   Address Val1 = Address::invalid();
@@ -1030,7 +1056,7 @@ RValue CodeGenFunction::EmitAtomicExpr(AtomicExpr *E) {
         E->getOp() == AtomicExpr::AO__scoped_atomic_compare_exchange)
       Val2 = EmitPointerWithAlignment(E->getVal2());
     else
-      Val2 = EmitValToTemp(*this, E->getVal2());
+      Val2 = EmitValToTemp(*this, E->getVal2(), PtrAuth, Ptr);
     OrderFail = EmitScalarExpr(E->getOrderFail());
     if (E->getOp() == AtomicExpr::AO__atomic_compare_exchange_n ||
         E->getOp() == AtomicExpr::AO__atomic_compare_exchange ||
@@ -1133,7 +1159,7 @@ RValue CodeGenFunction::EmitAtomicExpr(AtomicExpr *E) {
   case AtomicExpr::AO__atomic_fetch_fmaximum:
   case AtomicExpr::AO__atomic_fetch_fminimum_num:
   case AtomicExpr::AO__atomic_fetch_fmaximum_num:
-    Val1 = EmitValToTemp(*this, E->getVal1());
+    Val1 = EmitValToTemp(*this, E->getVal1(), PtrAuth, Ptr);
     break;
   }
 
@@ -2222,7 +2248,11 @@ void CodeGenFunction::EmitAtomicInit(Expr *init, LValue dest) {
 
   switch (atomics.getEvaluationKind()) {
   case TEK_Scalar: {
-    llvm::Value *value = EmitScalarExpr(init);
+    llvm::Value *value;
+    if (PointerAuthQualifier PtrAuth = dest.getQuals().getPointerAuth())
+      value = EmitPointerAuthQualify(PtrAuth, init, dest.getAddress());
+    else
+      value = EmitScalarExpr(init);
     atomics.emitCopyIntoMemory(RValue::get(value));
     return;
   }

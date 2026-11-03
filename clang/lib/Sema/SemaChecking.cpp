@@ -5477,11 +5477,25 @@ ExprResult Sema::BuildAtomicExpr(SourceRange CallRange, SourceRange ExprRange,
   }
 
   PointerAuthQualifier PointerAuth = AtomTy.getPointerAuth();
-  if (PointerAuth && PointerAuth.isAddressDiscriminated()) {
-    Diag(ExprRange.getBegin(),
-         diag::err_atomic_op_needs_non_address_discriminated_pointer)
-        << 0 << Ptr->getType() << Ptr->getSourceRange();
-    return ExprError();
+  if (PointerAuth) {
+    if (Form == Arithmetic) {
+      Diag(ExprRange.getBegin(), diag::err_atomic_op_needs_non_ptrauth_pointer)
+          << 1 << Ptr->getType() << Ptr->getSourceRange();
+      return ExprError();
+    }
+    // The generic by-address forms are not supported.
+    if (!IsC11 && !IsHIP && !IsN) {
+      Diag(ExprRange.getBegin(), diag::err_atomic_op_needs_non_ptrauth_pointer)
+          << 2 << Ptr->getType() << Ptr->getSourceRange();
+      return ExprError();
+    }
+  }
+
+  // The by-value forms yield the plain value, as the __c11 forms do.
+  if (!IsC11 && PointerAuth) {
+    Qualifiers Qs = ValType.getQualifiers();
+    Qs.removePointerAuth();
+    ValType = Context.getQualifiedType(ValType.getUnqualifiedType(), Qs);
   }
 
   // For an arithmetic operation, the implied arithmetic must be well-formed.
@@ -5863,11 +5877,9 @@ ExprResult Sema::BuiltinAtomicOverloaded(ExprResult TheCallResult) {
         << FirstArg->getType() << 0 << FirstArg->getSourceRange();
     return ExprError();
   }
-  PointerAuthQualifier PointerAuth = ValType.getPointerAuth();
-  if (PointerAuth && PointerAuth.isAddressDiscriminated()) {
-    Diag(FirstArg->getBeginLoc(),
-         diag::err_atomic_op_needs_non_address_discriminated_pointer)
-        << 1 << ValType << FirstArg->getSourceRange();
+  if (ValType.getPointerAuth()) {
+    Diag(FirstArg->getBeginLoc(), diag::err_atomic_op_needs_non_ptrauth_pointer)
+        << 0 << FirstArg->getType() << FirstArg->getSourceRange();
     return ExprError();
   }
 

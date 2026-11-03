@@ -48,6 +48,16 @@ The previous behavior can be restored with `-Wno-error=unicode-whitespace`.
 Clang will stop accepting non-ascii whitespaces as token separators
 in a future version of Clang.
 
+- Atomic operations on `__ptrauth`-qualified values now sign and authenticate
+  the pointer using the object's schema. This covers implicit initialization,
+  load, and store on `_Atomic __ptrauth` objects, as well as the
+  initialization, load, store, exchange, and compare-exchange atomic builtins.
+  In particular, the builtins on non-address-discriminated `__ptrauth`
+  objects, which previously operated on the raw value, now sign and
+  authenticate it. Atomic arithmetic, `__sync_*`, the GNU generic by-address
+  load, store, exchange, and compare-exchange forms, and implicit `++`, `--`,
+  and compound assignment are rejected.
+
 ### C++ Specific Potentially Breaking Changes
 
 - The `[[carries_dependency]]` attribute is no longer recognized, in any language
@@ -1247,6 +1257,11 @@ documentation](CIR/index.md) for more information regarding ClangIR's status and
 - Added support for pointer authentication discrimination of C++ virtual table
   pointers stored in VTTs via the `-fptrauth-vtt-vtable-pointer-discrimination`
   option.
+
+- Added support for atomic operations on `__ptrauth`-qualified pointers and
+  pointer-sized integers: implicit `_Atomic` initialization, load, and store,
+  and the initialization, load, store, exchange, and compare-exchange
+  `__c11_atomic_*`, GNU `_n`, and HIP builtins.
 
 - Added support for the `aarch64-unknown-uefi` target triple. Like
   `x86_64-unknown-uefi`, it follows the Microsoft ABI conventions (LLP64,

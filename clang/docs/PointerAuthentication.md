@@ -431,6 +431,17 @@ a discriminator determined as follows:
   is `ptrauth_blend_discriminator(&x, discriminator)`; see
   [`ptrauth_blend_discriminator`](#ptrauth-blend-discriminator).
 
+Atomic operations on a `__ptrauth`-qualified object sign values as they are
+stored and authenticate them as they are loaded, using the object's schema.
+This covers implicit initialization, loads, and stores on `_Atomic __ptrauth`
+objects; the `__c11_atomic_*` (and OpenCL) init, load, store, exchange, and
+compare-exchange operations on `_Atomic __ptrauth` objects; and the GNU `_n`
+(including scoped) and HIP load, store, exchange, and compare-exchange
+operations on non-`_Atomic` `__ptrauth` objects. Atomic arithmetic,
+`__sync_*`, the GNU generic by-address forms (`__atomic_load`,
+`__atomic_store`, `__atomic_exchange`, and `__atomic_compare_exchange`),
+and implicit `++`, `--`, and compound assignment are rejected.
+
 ##### Non-triviality from address diversity
 
 Address diversity must impose additional restrictions in order to allow the

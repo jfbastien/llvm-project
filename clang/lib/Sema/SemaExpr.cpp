@@ -15076,6 +15076,11 @@ static QualType CheckIncrementDecrementOperand(Sema &S, Expr *Op,
                                                SourceLocation OpLoc, bool IsInc,
                                                bool IsPrefix) {
   QualType ResType = Op->getType();
+  if (ResType.getPointerAuth() && ResType->isAtomicType()) {
+    S.Diag(OpLoc, diag::err_ptrauth_atomic_rmw)
+        << (IsInc ? 0 : 1) << ResType << Op->getSourceRange();
+    return QualType();
+  }
   // Atomic types can be used for increment / decrement where the non-atomic
   // versions can, so ignore the _Atomic() specifier for the purpose of
   // checking.
@@ -15904,7 +15909,15 @@ ExprResult Sema::CreateBuiltinBinOp(SourceLocation OpLoc,
     }
   }
 
-  checkTypeSupport(LHSExpr->getType(), OpLoc, /*ValueDecl*/ nullptr);
+  QualType LHSType = LHSExpr->getType();
+  if (BinaryOperator::isCompoundAssignmentOp(Opc) && LHSType.getPointerAuth() &&
+      LHSType->isAtomicType()) {
+    Diag(OpLoc, diag::err_ptrauth_atomic_rmw)
+        << 2 << LHSType << LHSExpr->getSourceRange();
+    return ExprError();
+  }
+
+  checkTypeSupport(LHSType, OpLoc, /*ValueDecl*/ nullptr);
   checkTypeSupport(RHSExpr->getType(), OpLoc, /*ValueDecl*/ nullptr);
 
   switch (Opc) {

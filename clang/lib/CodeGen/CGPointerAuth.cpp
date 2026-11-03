@@ -191,6 +191,8 @@ CGPointerAuthInfo CodeGenModule::getPointerAuthInfoForPointeeType(QualType T) {
 /// pointer type.
 static CGPointerAuthInfo getPointerAuthInfoForType(CodeGenModule &CGM,
                                                    QualType PointerType) {
+  if (const AtomicType *Atomic = PointerType->getAs<AtomicType>())
+    PointerType = Atomic->getValueType();
   assert(PointerType->isSignableType(CGM.getContext()));
 
   // Block pointers are currently not signed.
@@ -225,9 +227,12 @@ emitLoadOfOrigPointerRValue(CodeGenFunction &CGF, const LValue &LV,
 /// needlessly resigning the pointer.
 std::pair<llvm::Value *, CGPointerAuthInfo>
 CodeGenFunction::EmitOrigPointerRValue(const Expr *E) {
-  assert(E->getType()->isSignableType(getContext()));
-
   E = E->IgnoreParens();
+  QualType Ty = E->getType();
+  if (const auto *Atomic = Ty->getAs<AtomicType>())
+    Ty = Atomic->getValueType();
+  assert(Ty->isSignableType(getContext()));
+
   if (const auto *Load = dyn_cast<ImplicitCastExpr>(E)) {
     if (Load->getCastKind() == CK_LValueToRValue) {
       E = Load->getSubExpr()->IgnoreParens();
@@ -262,6 +267,13 @@ CodeGenFunction::EmitPointerAuthQualify(PointerAuthQualifier DestQualifier,
                                         const Expr *E,
                                         Address DestStorageAddress) {
   assert(DestQualifier);
+  E = E->IgnoreParens();
+  while (const auto *Cast = dyn_cast<CastExpr>(E)) {
+    if (Cast->getCastKind() != CK_NonAtomicToAtomic &&
+        Cast->getCastKind() != CK_AtomicToNonAtomic)
+      break;
+    E = Cast->getSubExpr()->IgnoreParens();
+  }
   auto [Value, CurAuthInfo] = EmitOrigPointerRValue(E);
 
   CGPointerAuthInfo DestAuthInfo =
